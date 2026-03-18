@@ -22,11 +22,36 @@ st.markdown("""
 
 .section-card {
     background: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 10px;
-    padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    padding: 1.2rem; margin-bottom: 0.4rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .section-title {
-    font-size: 1rem; font-weight: 700; color: #002060; margin-bottom: 0.8rem;
+    font-size: 1rem; font-weight: 700; color: #002060; margin-bottom: 0.6rem;
     display: flex; align-items: center; gap: 0.5rem;
+}
+
+/* Reduce gaps between Streamlit columns/blocks */
+.stColumns { gap: 0.3rem !important; }
+div[data-testid="stVerticalBlock"] > div { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+div[data-testid="stVerticalBlock"] > div:has(> div.stMarkdown) { margin-bottom: 0 !important; }
+
+/* Kill all empty Streamlit spacer divs */
+.element-container:empty { display: none !important; }
+div[data-testid="stVerticalBlock"] > div:empty { display: none !important; margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
+
+/* Reduce Streamlit's default block spacing */
+.block-container { padding-top: 1rem !important; }
+div[data-testid="stExpander"] { margin-bottom: 0.3rem !important; }
+
+/* Thin blue divider between sections */
+.blue-divider {
+    border: none; border-top: 2px solid #002060; margin: 0.5rem 0; opacity: 0.3;
+}
+
+/* Sidebar example buttons - slightly smaller font */
+section[data-testid="stSidebar"] button {
+    font-size: 0.82rem !important;
+    padding: 0.4rem 0.6rem !important;
+    line-height: 1.3 !important;
 }
 .ifrs-tag {
     background: #002060; color: white; padding: 0.4rem 1rem; border-radius: 6px;
@@ -118,44 +143,35 @@ if "is_premium" not in st.session_state:
     st.session_state.is_premium = False
 if "usage_count" not in st.session_state:
     st.session_state.usage_count = 0
-if "cookie_loaded" not in st.session_state:
-    st.session_state.cookie_loaded = False
+if "pw_hash" not in st.session_state:
+    st.session_state.pw_hash = ""
 
-MAX_FREE_ANALYSES = 5  # Free tier limit (persists via cookie)
+MAX_FREE_ANALYSES = 5  # Free tier limit
 
-# ── Cookie-based usage tracking via JS ──
-# Inject JS to read/write cookie for persistent usage tracking
-cookie_js = """
-<script>
-function getCookie(name) {
-    let match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-    return match ? parseInt(match[2]) : 0;
-}
-function setCookie(name, value) {
-    let d = new Date();
-    d.setTime(d.getTime() + (365*24*60*60*1000));
-    document.cookie = name + "=" + value + ";expires=" + d.toUTCString() + ";path=/;SameSite=Strict";
-}
-// On page load, send cookie value to Streamlit via query params
-let count = getCookie('ifrs_usage');
-if (window.location.search.indexOf('usage_init') === -1 && !window._cookieSent) {
-    window._cookieSent = true;
-    // Store in a hidden element for Streamlit to read
-    let el = document.getElementById('cookie-count');
-    if (el) el.innerText = count;
-}
-function incrementUsage() {
-    let current = getCookie('ifrs_usage');
-    setCookie('ifrs_usage', current + 1);
-}
-</script>
-<div id="cookie-count" style="display:none;">0</div>
-"""
-st.markdown(cookie_js, unsafe_allow_html=True)
+# ── Persistent usage tracking via file storage ──
+import hashlib, os, json as json_lib
 
-# Since Streamlit can't directly read cookies from JS, we use a simpler approach:
-# Track usage in session state but also increment a cookie via JS after each analysis.
-# The cookie prevents reset on page refresh by re-reading on component load.
+USAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".usage_data")
+os.makedirs(USAGE_DIR, exist_ok=True)
+
+def get_usage_file(password_hash):
+    return os.path.join(USAGE_DIR, f"{password_hash}.json")
+
+def load_usage(password_hash):
+    fpath = get_usage_file(password_hash)
+    if os.path.exists(fpath):
+        try:
+            with open(fpath, 'r') as f:
+                data = json_lib.load(f)
+                return data.get("count", 0)
+        except:
+            return 0
+    return 0
+
+def save_usage(password_hash, count):
+    fpath = get_usage_file(password_hash)
+    with open(fpath, 'w') as f:
+        json_lib.dump({"count": count}, f)
 
 # ── Password Gate ──
 if not st.session_state.authenticated:
@@ -178,10 +194,14 @@ if not st.session_state.authenticated:
             if password == premium_password:
                 st.session_state.authenticated = True
                 st.session_state.is_premium = True
+                st.session_state.pw_hash = hashlib.md5(password.encode()).hexdigest()
                 st.rerun()
             elif password == free_password:
                 st.session_state.authenticated = True
                 st.session_state.is_premium = False
+                st.session_state.pw_hash = hashlib.md5(password.encode()).hexdigest()
+                # Load persisted usage count
+                st.session_state.usage_count = load_usage(st.session_state.pw_hash)
                 st.rerun()
             else:
                 st.error("Incorrect code. DM Akshita on LinkedIn for access.")
@@ -193,40 +213,19 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
     
     with pw_col2:
-        # Pricing tiers
-        payment_url = st.secrets.get("PAYMENT_URL", "https://www.linkedin.com/in/akshita-gagrani-02457091")
-        
-        st.markdown(f"""
-        <div style="display:flex; gap:12px; margin-top:0.5rem;">
-            <div style="flex:1; background:#F8FAFC; border:2px solid #E0E0E0; border-radius:10px; padding:1.2rem; text-align:center;">
-                <div style="font-size:1.2rem; font-weight:700; color:#002060;">🆓 Free Trial</div>
-                <div style="font-size:2rem; font-weight:700; color:#002060; margin:0.5rem 0;">$0</div>
-                <div style="font-size:0.8rem; color:#666; margin-bottom:1rem;">5 analyses + unlimited follow-ups</div>
-                <div style="font-size:0.78rem; color:#888; text-align:left;">
-                    ✅ Quick Treatment mode<br>
-                    ✅ Audit Memo mode<br>
-                    ✅ Compare Treatments mode<br>
-                    ✅ Document upload<br>
-                    ✅ 19 jurisdictions<br>
-                    ✅ 10 languages<br>
-                    ⚠️ Limited to 5 analyses
-                </div>
+        st.markdown("""
+        <div style="background:#F8FAFC; border:1px solid #E0E0E0; border-radius:10px; padding:1rem 1.2rem; margin-top:0.5rem;">
+            <div style="font-weight:700; color:#002060; font-size:0.95rem; margin-bottom:0.5rem;">What you get:</div>
+            <div style="font-size:0.82rem; color:#555; line-height:1.6;">
+                ✅ IFRS treatment with paragraph references<br>
+                ✅ Journal entries & disclosure drafts<br>
+                ✅ Audit-ready technical memos<br>
+                ✅ Side-by-side treatment comparison<br>
+                ✅ Upload contracts (PDF) for auto-analysis<br>
+                ✅ 19 jurisdictions • 10 languages
             </div>
-            <div style="flex:1; background:#F0F7FF; border:2px solid #002060; border-radius:10px; padding:1.2rem; text-align:center; position:relative;">
-                <div style="position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:#002060; color:white; font-size:0.7rem; padding:2px 12px; border-radius:10px; font-weight:600;">RECOMMENDED</div>
-                <div style="font-size:1.2rem; font-weight:700; color:#002060;">💎 Premium</div>
-                <div style="font-size:2rem; font-weight:700; color:#002060; margin:0.5rem 0;">$9.99<span style="font-size:0.9rem; font-weight:400;">/mo</span></div>
-                <div style="font-size:0.8rem; color:#666; margin-bottom:1rem;">Unlimited analyses & follow-ups</div>
-                <div style="font-size:0.78rem; color:#888; text-align:left;">
-                    ✅ Everything in Free, plus:<br>
-                    ✅ <strong>Unlimited</strong> analyses<br>
-                    ✅ Priority response speed<br>
-                    ✅ Export to HTML reports<br>
-                    ✅ Full session history
-                </div>
-                <a href="{payment_url}" target="_blank" style="display:inline-block; margin-top:1rem; background:#002060; color:white; padding:0.5rem 1.5rem; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem;">
-                    💳 Get Premium Access
-                </a>
+            <div style="margin-top:0.8rem; font-size:0.78rem; color:#888;">
+                🆓 Free: 5 analyses + unlimited follow-ups &nbsp;|&nbsp; 💎 Premium: unlimited — DM for details
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -970,122 +969,115 @@ def get_download_link(html_content, filename):
 def render_quick(result):
     r = result
     
-    # Standard
+    # Standard - single HTML block
     if r.get("applicable_standard"):
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📌 Applicable Standard</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="ifrs-tag">{r["applicable_standard"].get("primary", "See analysis")}</div>', unsafe_allow_html=True)
+        std_html = '<div class="section-card"><div class="section-title">📌 Applicable Standard</div>'
+        std_html += f'<div class="ifrs-tag">{r["applicable_standard"].get("primary", "See analysis")}</div>'
         if r["applicable_standard"].get("secondary"):
             for sec in r["applicable_standard"]["secondary"]:
-                st.markdown(f"**Also relevant:** {sec}")
+                std_html += f'<p style="margin:3px 0;font-size:0.9rem;"><strong>Also relevant:</strong> {sec}</p>'
         if r["applicable_standard"].get("why"):
-            st.markdown(f"**Why:** {r['applicable_standard']['why']}")
+            std_html += f'<p style="margin:4px 0;"><strong>Why:</strong> {r["applicable_standard"]["why"]}</p>'
         if r["applicable_standard"].get("key_paragraphs"):
-            st.markdown(f'<div class="ref-box">📖 <strong>Key references:</strong> {", ".join(r["applicable_standard"]["key_paragraphs"])}</div>', unsafe_allow_html=True)
+            std_html += f'<div class="ref-box">📖 <strong>Key references:</strong> {", ".join(r["applicable_standard"]["key_paragraphs"])}</div>'
+        complexity = r.get("complexity_rating", "Medium")
+        cmap = {"Low": "#4CAF50", "Medium": "#FF9800", "High": "#F44336"}
+        std_html += f'<p style="margin:6px 0;"><strong>Complexity:</strong> <span style="color:{cmap.get(complexity,"#FF9800")};font-weight:700;">{complexity}</span></p>'
+        std_html += '</div>'
+        st.markdown(std_html, unsafe_allow_html=True)
     
-    complexity = r.get("complexity_rating", "Medium")
-    cmap = {"Low": "#4CAF50", "Medium": "#FF9800", "High": "#F44336"}
-    st.markdown(f'**Complexity:** <span style="color:{cmap.get(complexity,"#FF9800")};font-weight:700;">{complexity}</span>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Recognition & Measurement - single HTML block to avoid Streamlit gaps
+    rm_html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;">'
     
-    # Recognition & Measurement
-    c1, c2 = st.columns(2)
-    with c1:
-      if r.get('recognition'):
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">✅ Recognition</div>', unsafe_allow_html=True)
-        st.markdown(f"**Criteria:** {r['recognition'].get('criteria','N/A')}")
-        st.markdown(f"**Timing:** {r['recognition'].get('timing','N/A')}")
+    if r.get('recognition'):
+        rm_html += '<div class="section-card">'
+        rm_html += '<div class="section-title">✅ Recognition</div>'
+        rm_html += f'<p style="margin:4px 0;"><strong>Criteria:</strong> {r["recognition"].get("criteria","N/A")}</p>'
+        rm_html += f'<p style="margin:4px 0;"><strong>Timing:</strong> {r["recognition"].get("timing","N/A")}</p>'
         if r['recognition'].get('conditions'):
             for cond in r['recognition']['conditions']:
-                st.markdown(f"- {cond}")
+                rm_html += f'<p style="margin:2px 0 2px 12px;font-size:0.9rem;">• {cond}</p>'
         if r['recognition'].get('industry_considerations') and r['recognition']['industry_considerations'] not in ["null", None]:
-            st.markdown(f"**Industry note:** {r['recognition']['industry_considerations']}")
-        st.markdown('</div>', unsafe_allow_html=True)
+            rm_html += f'<p style="margin:6px 0;"><strong>Industry note:</strong> {r["recognition"]["industry_considerations"]}</p>'
+        rm_html += '</div>'
     
-    with c2:
-      if r.get('measurement'):
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📏 Measurement</div>', unsafe_allow_html=True)
-        st.markdown(f"**Initial:** {r['measurement'].get('initial','N/A')}")
-        st.markdown(f"**Subsequent:** {r['measurement'].get('subsequent','N/A')}")
-        st.markdown(f"**Method:** {r['measurement'].get('method','N/A')}")
+    if r.get('measurement'):
+        rm_html += '<div class="section-card">'
+        rm_html += '<div class="section-title">📏 Measurement</div>'
+        rm_html += f'<p style="margin:4px 0;"><strong>Initial:</strong> {r["measurement"].get("initial","N/A")}</p>'
+        rm_html += f'<p style="margin:4px 0;"><strong>Subsequent:</strong> {r["measurement"].get("subsequent","N/A")}</p>'
+        rm_html += f'<p style="margin:4px 0;"><strong>Method:</strong> {r["measurement"].get("method","N/A")}</p>'
         if r['measurement'].get('rates_assumptions'):
-            st.markdown(f"**Key assumptions:** {r['measurement']['rates_assumptions']}")
-        st.markdown('</div>', unsafe_allow_html=True)
+            rm_html += f'<p style="margin:4px 0;"><strong>Key assumptions:</strong> {r["measurement"]["rates_assumptions"]}</p>'
+        rm_html += '</div>'
     
-    # Journal Entries
+    rm_html += '</div>'
+    st.markdown(rm_html, unsafe_allow_html=True)
+    
+    # Thin divider
+    st.markdown('<hr class="blue-divider">', unsafe_allow_html=True)
+    
+    # Journal Entries - single HTML block
     if r.get("journal_entries"):
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📝 Journal Entries</div>', unsafe_allow_html=True)
-    
-    # Build full JE text for copy
-    je_text_parts = []
+        je_html = '<div class="section-card"><div class="section-title">📝 Journal Entries</div>'
     for je in r["journal_entries"]:
         timing_label = f" ({je['timing']})" if je.get('timing') else ""
-        st.markdown(f"**{je['description']}{timing_label}**")
-        je_text_parts.append(f"{je['description']}{timing_label}")
-        tbl = '<table class="journal-table"><tr><th>Account</th><th>Debit</th><th>Credit</th></tr>'
+        je_html += f'<p style="margin:6px 0;font-weight:700;">{je["description"]}{timing_label}</p>'
+        je_html += '<table class="journal-table"><tr><th>Account</th><th>Debit</th><th>Credit</th></tr>'
         for e in je["entries"]:
-            tbl += f'<tr><td>{e["account"]}</td><td>{e.get("debit","")}</td><td>{e.get("credit","")}</td></tr>'
-            dr = e.get("debit", "")
-            cr = e.get("credit", "")
-            je_text_parts.append(f"  {'Dr' if dr else 'Cr'}: {e['account']} — {dr if dr else cr}")
-        tbl += '</table><br>'
-        st.markdown(tbl, unsafe_allow_html=True)
-        je_text_parts.append("")
+            je_html += f'<tr><td>{e["account"]}</td><td>{e.get("debit","")}</td><td>{e.get("credit","")}</td></tr>'
+        je_html += '</table>'
+    je_html += '</div>'
+    st.markdown(je_html, unsafe_allow_html=True)
     
-    # Copy all JEs button
-    je_full_text = "\n".join(je_text_parts)
-    st.download_button("📋 Copy All Journal Entries", data=je_full_text, file_name="journal_entries.txt", mime="text/plain", key="copy_je")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Thin divider
+    st.markdown('<hr class="blue-divider">', unsafe_allow_html=True)
     
-    # Disclosure Draft
+    # Disclosure Draft as single HTML block
     if r.get("disclosure_draft"):
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📋 Disclosure Draft</div>', unsafe_allow_html=True)
         dd = r["disclosure_draft"]
-        disc_text_parts = []
+        disc_html = '<div class="section-card"><div class="section-title">📋 Disclosure Draft</div>'
         if dd.get("accounting_policy"):
-            st.markdown(f'<div class="memo-section"><div class="memo-label">Accounting Policy Wording</div>{dd["accounting_policy"]}</div>', unsafe_allow_html=True)
-            disc_text_parts.append(f"Accounting Policy:\n{dd['accounting_policy']}\n")
+            disc_html += f'<div class="memo-section"><div class="memo-label">Accounting Policy Wording</div>{dd["accounting_policy"]}</div>'
         if dd.get("note_disclosures"):
-            st.markdown("**Required Note Disclosures:**")
+            disc_html += '<p style="margin:8px 0 4px;font-weight:700;">Required Note Disclosures:</p>'
             for d in dd["note_disclosures"]:
-                st.markdown(f'<div class="disclosure-item">{d}</div>', unsafe_allow_html=True)
-                disc_text_parts.append(f"- {d}")
+                disc_html += f'<div class="disclosure-item">{d}</div>'
         if dd.get("quantitative_disclosures"):
-            st.markdown("**Quantitative Schedules Required:**")
-            disc_text_parts.append("\nQuantitative Schedules:")
+            disc_html += '<p style="margin:8px 0 4px;font-weight:700;">Quantitative Schedules Required:</p>'
             for q in dd["quantitative_disclosures"]:
-                st.markdown(f"- {q}")
-                disc_text_parts.append(f"- {q}")
-        
-        disc_full = "\n".join(disc_text_parts)
-        st.download_button("📋 Copy Disclosure Draft", data=disc_full, file_name="disclosure_draft.txt", mime="text/plain", key="copy_disc")
-        st.markdown('</div>', unsafe_allow_html=True)
+                disc_html += f'<p style="margin:2px 0 2px 12px;font-size:0.9rem;">• {q}</p>'
+        disc_html += '</div>'
+        st.markdown(disc_html, unsafe_allow_html=True)
     
-    # Practical Notes & Judgments
-    c3, c4 = st.columns(2)
-    with c3:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">⚠️ Practical Notes</div>', unsafe_allow_html=True)
-        for n in r.get("practical_notes", []):
-            st.markdown(f"• {n}")
-        if r.get("common_errors"):
-            st.markdown("**Common errors:**")
-            for ce in r["common_errors"]:
-                st.markdown(f"🔴 {ce}")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Thin divider
+    st.markdown('<hr class="blue-divider">', unsafe_allow_html=True)
     
-    with c4:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">🔍 Key Judgments</div>', unsafe_allow_html=True)
-        for kj in r.get("key_judgments", []):
-            st.markdown(f"🔸 {kj}")
-        if r.get("jurisdiction_notes") and r["jurisdiction_notes"] != "null":
-            st.markdown(f"**Jurisdiction note:** {r['jurisdiction_notes']}")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Practical Notes & Judgments - rendered as single HTML to avoid Streamlit gaps
+    pn_html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;">'
+    
+    # Left column - Practical Notes
+    pn_html += '<div class="section-card">'
+    pn_html += '<div class="section-title">⚠️ Practical Notes</div>'
+    for n in r.get("practical_notes", []):
+        pn_html += f'<p style="margin:4px 0;font-size:0.9rem;">• {n}</p>'
+    if r.get("common_errors"):
+        pn_html += '<p style="margin:8px 0 4px;font-weight:700;">Common errors:</p>'
+        for ce in r.get("common_errors", []):
+            pn_html += f'<p style="margin:3px 0;font-size:0.9rem;">🔴 {ce}</p>'
+    pn_html += '</div>'
+    
+    # Right column - Key Judgments
+    pn_html += '<div class="section-card">'
+    pn_html += '<div class="section-title">🔍 Key Judgments</div>'
+    for kj in r.get("key_judgments", []):
+        pn_html += f'<p style="margin:4px 0;font-size:0.9rem;">🔸 {kj}</p>'
+    if r.get("jurisdiction_notes") and r.get("jurisdiction_notes") not in ["null", None]:
+        pn_html += f'<p style="margin:8px 0 4px;font-weight:700;">Jurisdiction note:</p>'
+        pn_html += f'<p style="margin:3px 0;font-size:0.9rem;">{r["jurisdiction_notes"]}</p>'
+    pn_html += '</div></div>'
+    
+    st.markdown(pn_html, unsafe_allow_html=True)
 
 
 def render_memo(result):
@@ -1332,8 +1324,9 @@ if analyze_btn and (transaction.strip() or (uploaded_file if 'uploaded_file' in 
             # Only increment counter for free tier new analyses (not follow-ups)
             if not st.session_state.is_premium:
                 st.session_state.usage_count += 1
-                # Increment browser cookie to persist across page refreshes
-                st.markdown(f'<script>setCookie("ifrs_usage", {st.session_state.usage_count});</script>', unsafe_allow_html=True)
+                # Persist to file so it survives page refresh
+                if "pw_hash" in st.session_state:
+                    save_usage(st.session_state.pw_hash, st.session_state.usage_count)
             
             st.session_state.last_result = result
             st.session_state.last_transaction = transaction
