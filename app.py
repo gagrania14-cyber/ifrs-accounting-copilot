@@ -268,57 +268,7 @@ def get_model():
     genai.configure(api_key=api_key)
     return genai.GenerativeModel('models/gemini-2.5-flash')
 
-# ── Context Panel ──
-with st.expander("⚙️ **Set Your Context** (industry, geography, entity type, language) — improves accuracy", expanded=False):
-    ctx_c1, ctx_c2, ctx_c3, ctx_c4 = st.columns(4)
-    with ctx_c1:
-        industry = st.selectbox("Industry", [
-            "General / Not specified", "Banking & Financial Services", "Insurance",
-            "Real Estate & Construction", "Technology / SaaS", "Telecom",
-            "Manufacturing", "Retail & Consumer", "Oil & Gas / Energy",
-            "Healthcare & Pharma", "Transport & Logistics", "Government / Public Sector",
-            "Professional Services", "Hospitality", "Education", "Other"
-        ])
-    with ctx_c2:
-        geography = st.selectbox("Jurisdiction", [
-            "IFRS (Global / No specific jurisdiction)",
-            "UAE",
-            "Saudi Arabia (KSA)",
-            "GCC — Bahrain, Kuwait, Oman, Qatar",
-            "European Union",
-            "United Kingdom (UK-adopted IFRS)",
-            "India (Ind AS)",
-            "Australia (AASB)",
-            "Singapore (SFRS)",
-            "Hong Kong (HKFRS)",
-            "South Africa (JSE)",
-            "Canada (IFRS / ASPE)",
-            "Nigeria (FRCN)",
-            "Kenya / East Africa",
-            "Egypt",
-            "United States (US GAAP)",
-            "China (CAS)",
-            "Japan (J-GAAP / IFRS optional)",
-            "Other"
-        ])
-    with ctx_c3:
-        entity_type = st.selectbox("Entity Type", [
-            "Listed / Public Company", "Private Company (Full IFRS)",
-            "SME (IFRS for SMEs)", "Government Entity (IPSAS)",
-            "Not-for-Profit", "Other"
-        ])
-    with ctx_c4:
-        currency = st.text_input("Functional Currency", value="USD", max_chars=5)
-
-    ctx_c5, ctx_c6 = st.columns(2)
-    with ctx_c5:
-        reporting_period = st.text_input("Reporting Period (optional)", placeholder="e.g., FY ending 31 Dec 2025", max_chars=50)
-    with ctx_c6:
-        output_language = st.selectbox("Output Language", [
-            "English", "Arabic (العربية)", "French (Français)", "Spanish (Español)",
-            "Portuguese (Português)", "Hindi (हिन्दी)", "Chinese (中文)",
-            "Bahasa Indonesia", "Turkish (Türkçe)", "German (Deutsch)"
-        ])
+# ── Context is now in sidebar ──
 
 def get_context_string():
     parts = []
@@ -336,33 +286,7 @@ def get_context_string():
         parts.append(f"Language: {output_language}")
     return " | ".join(parts) if parts else ""
 
-ctx_str = get_context_string()
-if ctx_str:
-    st.markdown(f'<div class="context-bar">📎 <strong>Context applied:</strong> {ctx_str}</div>', unsafe_allow_html=True)
-
-# Jurisdiction-specific warnings
-if "United States" in geography:
-    st.markdown("""
-    <div style="background:#FFF3E0;border:1px solid #FF9800;border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.88rem;color:#E65100;">
-        <strong>⚠️ US GAAP Jurisdiction Selected:</strong> This tool is built for IFRS. The US follows US GAAP (ASC Codification), 
-        a fundamentally different framework. Analysis below follows IFRS but will flag key US GAAP differences where material. 
-        For definitive US GAAP treatment, consult the ASC Codification directly.
-    </div>
-    """, unsafe_allow_html=True)
-elif "China" in geography:
-    st.markdown("""
-    <div style="background:#FFF3E0;border:1px solid #FF9800;border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.88rem;color:#E65100;">
-        <strong>⚠️ China (CAS) Selected:</strong> This tool is built for IFRS. Chinese Accounting Standards are substantially converged 
-        with IFRS but have practical differences. Analysis below follows IFRS with CAS differences flagged where known.
-    </div>
-    """, unsafe_allow_html=True)
-elif "Japan" in geography:
-    st.markdown("""
-    <div style="background:#FFF3E0;border:1px solid #FF9800;border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.88rem;color:#E65100;">
-        <strong>⚠️ Japan Selected:</strong> Most Japanese entities follow J-GAAP, not IFRS. If your entity uses IFRS (voluntary adoption), 
-        the analysis below applies. If J-GAAP applies, treatment may differ significantly — particularly for goodwill, OCI recycling, and revenue.
-    </div>
-    """, unsafe_allow_html=True)
+# ctx_str will be called after sidebar defines the variables
 
 # ── Context for prompts ──
 def build_context_block():
@@ -745,6 +669,37 @@ with st.sidebar:
     clean_mode = mode.split(" ", 1)[1]
     
     st.markdown("---")
+    st.markdown("### ⚙️ Set Your Context")
+    industry = st.selectbox("Industry", [
+        "General / Not specified", "Banking & Financial Services", "Insurance",
+        "Real Estate & Construction", "Technology / SaaS", "Telecom",
+        "Manufacturing", "Retail & Consumer", "Oil & Gas / Energy",
+        "Healthcare & Pharma", "Transport & Logistics", "Government / Public Sector",
+        "Professional Services", "Hospitality", "Education", "Other"
+    ])
+    geography = st.selectbox("Jurisdiction", [
+        "IFRS (Global / No specific jurisdiction)",
+        "UAE", "Saudi Arabia (KSA)", "GCC — Bahrain, Kuwait, Oman, Qatar",
+        "European Union", "United Kingdom (UK-adopted IFRS)", "India (Ind AS)",
+        "Australia (AASB)", "Singapore (SFRS)", "Hong Kong (HKFRS)",
+        "South Africa (JSE)", "Canada (IFRS / ASPE)", "Nigeria (FRCN)",
+        "Kenya / East Africa", "Egypt", "United States (US GAAP)",
+        "China (CAS)", "Japan (J-GAAP / IFRS optional)", "Other"
+    ])
+    entity_type = st.selectbox("Entity Type", [
+        "Listed / Public Company", "Private Company (Full IFRS)",
+        "SME (IFRS for SMEs)", "Government Entity (IPSAS)",
+        "Not-for-Profit", "Other"
+    ])
+    currency = st.text_input("Functional Currency", value="USD", max_chars=5)
+    reporting_period = st.text_input("Reporting Period (optional)", placeholder="e.g., FY ending 31 Dec 2025", max_chars=50)
+    output_language = st.selectbox("Output Language", [
+        "English", "Arabic (العربية)", "French (Français)", "Spanish (Español)",
+        "Portuguese (Português)", "Hindi (हिन्दी)", "Chinese (中文)",
+        "Bahasa Indonesia", "Turkish (Türkçe)", "German (Deutsch)"
+    ])
+    
+    st.markdown("---")
     st.markdown(f"### 💡 Example Transactions")
     st.markdown(f"*Examples for {clean_mode} mode:*")
     
@@ -779,6 +734,7 @@ with st.sidebar:
     )
 
 # ── Mode display ──
+ctx_str = get_context_string()
 mode_descriptions = {
     "Quick Treatment": "Get the full IFRS treatment: standard, recognition, measurement, journal entries, disclosure draft, and practical notes.",
     "Audit Memo": "Generate a structured technical accounting memo: issue, guidance, analysis, conclusion, alternative views — ready to share with auditors.",
