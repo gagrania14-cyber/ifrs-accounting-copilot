@@ -146,13 +146,22 @@ if "usage_count" not in st.session_state:
 if "pw_hash" not in st.session_state:
     st.session_state.pw_hash = ""
 
-MAX_FREE_ANALYSES = 5  # Free tier limit
+MAX_FREE_ANALYSES = 99999  # Unlimited for launch
 
 # ── Persistent usage tracking via file storage ──
 import hashlib, os, json as json_lib
 
 USAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".usage_data")
 os.makedirs(USAGE_DIR, exist_ok=True)
+
+# Reset usage data if it was from a previous version (shared password issue)
+_reset_file = os.path.join(USAGE_DIR, "_v2_reset")
+if not os.path.exists(_reset_file):
+    for f in os.listdir(USAGE_DIR):
+        if f.endswith(".json"):
+            os.remove(os.path.join(USAGE_DIR, f))
+    with open(_reset_file, 'w') as f:
+        f.write("reset")
 
 def get_usage_file(password_hash):
     return os.path.join(USAGE_DIR, f"{password_hash}.json")
@@ -782,15 +791,12 @@ with input_tab2:
 if not st.session_state.is_premium:
     remaining = MAX_FREE_ANALYSES - st.session_state.usage_count
     if remaining <= 2 and remaining > 0:
-        st.markdown(f'<div style="background:#FFF3E0;border:1px solid #FF9800;border-radius:6px;padding:0.5rem 1rem;font-size:0.82rem;color:#E65100;">⚠️ {remaining} free analyses remaining. Upgrade to Premium for unlimited access.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#FFF3E0;border:1px solid #FF9800;border-radius:6px;padding:0.5rem 1rem;font-size:0.82rem;color:#E65100;">⚠️ {remaining} free analyses remaining.</div>', unsafe_allow_html=True)
     elif remaining <= 0:
-        payment_url = st.secrets.get("PAYMENT_URL", "https://www.linkedin.com/in/akshita-gagrani-02457091")
-        st.markdown(f"""
-        <div style="background:#FFEBEE;border:1px solid #EF5350;border-radius:8px;padding:1.2rem;font-size:0.9rem;color:#C62828;">
-            <strong>🔒 Free trial ended.</strong> You've used all 5 free analyses.<br><br>
-            Upgrade to <strong>Premium ($9.99/month)</strong> for unlimited analyses, document uploads, and all features.<br><br>
-            <a href="{payment_url}" target="_blank" style="display:inline-block; background:#002060; color:white; padding:0.5rem 1.5rem; border-radius:6px; text-decoration:none; font-weight:600; font-size:0.9rem;">💳 Upgrade to Premium</a>
-            <span style="margin-left:1rem; font-size:0.82rem; color:#888;">or DM <a href="https://www.linkedin.com/in/akshita-gagrani-02457091" target="_blank">Akshita on LinkedIn</a></span>
+        st.markdown("""
+        <div style="background:#F0F4F8;border:1px solid #D0D8E0;border-radius:8px;padding:1rem;font-size:0.88rem;color:#333;">
+            🔒 <strong>Free trial ended.</strong> You've used all 5 free analyses.<br><br>
+            For unlimited access, <a href="https://www.linkedin.com/in/akshita-gagrani-02457091" target="_blank">DM Akshita on LinkedIn</a>.
         </div>
         """, unsafe_allow_html=True)
     else:
